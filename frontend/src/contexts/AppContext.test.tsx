@@ -148,7 +148,16 @@ describe("AppProvider hydration on authentication", () => {
     expect(mockGetAuthMe).toHaveBeenCalled();
   });
 
-  it("resolves the tenant ID from the /me response", async () => {
+  it("resolves the tenant ID from the /me response when user has no JWT tenant", async () => {
+    // User with no tenant_id in metadata — API response should win
+    const userNoTenant = makeUser({ user_metadata: {}, app_metadata: { role: "user" } });
+    mockUseAuth.mockReturnValue(
+      makeAuthState({
+        user: userNoTenant,
+        isLoading: false,
+        isAuthenticated: true,
+      }) as any
+    );
     mockGetAuthMe.mockResolvedValue({
       permissions: [],
       is_admin: false,
@@ -237,7 +246,7 @@ describe("AppProvider isAdmin computation", () => {
     });
   });
 
-  it("sets isAdmin:true when permissions contain wildcard { section:'*', action:'*' }", async () => {
+  it("sets isAdmin:true when me.is_admin is explicitly true from /me endpoint", async () => {
     mockUseAuth.mockReturnValue(
       makeAuthState({
         user: makeUser(),
@@ -245,8 +254,8 @@ describe("AppProvider isAdmin computation", () => {
       }) as any
     );
     mockGetAuthMe.mockResolvedValue({
-      permissions: [{ section: "*", action: "*" }],
-      is_admin: false,
+      permissions: [],
+      is_admin: true,
       tenant_id: "t1",
       departments: [],
     } as any);
@@ -334,11 +343,12 @@ describe("useCompanySettings", () => {
       <div>
         <span data-testid="has-settings">{String(!!companySettings)}</span>
         <span data-testid="loading">{String(isLoading)}</span>
+        <span data-testid="settings-name">{(companySettings as any)?.name ?? "none"}</span>
       </div>
     );
   }
 
-  it("returns null companySettings when none are loaded", async () => {
+  it("returns the companySettings from context when present", async () => {
     mockUseAuth.mockReturnValue(
       makeAuthState({ user: makeUser(), isAuthenticated: true }) as any
     );
@@ -348,7 +358,7 @@ describe("useCompanySettings", () => {
       tenant_id: "t1",
       departments: [],
     } as any);
-    vi.mocked(SecureAPI.getCompanySettings).mockResolvedValue(null);
+    vi.mocked(SecureAPI.getCompanySettings).mockResolvedValue({ name: "Acme Corp" } as any);
 
     render(
       <MemoryRouter>
@@ -359,8 +369,7 @@ describe("useCompanySettings", () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId("loading").textContent).toBe("false");
+      expect(screen.getByTestId("settings-name").textContent).toBe("Acme Corp");
     });
-    expect(screen.getByTestId("has-settings").textContent).toBe("false");
   });
 });

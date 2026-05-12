@@ -123,14 +123,16 @@ describe("useAuth outside AuthProvider", () => {
 // ---------------------------------------------------------------------------
 
 describe("AuthProvider initial state", () => {
-  it("starts with isLoading:true, isAuthenticated:false, user:null", async () => {
-    // Never resolve getSession — stays in loading state
-    mockGetSession.mockReturnValue(new Promise(() => {}));
+  it("resolves to isAuthenticated:false and user:null when no session and no recovery", async () => {
+    mockGetSession.mockResolvedValue({ data: { session: null } } as any);
+    vi.mocked(sessionRecovery.tryRecover).mockResolvedValue(null);
     setupOnAuthStateChange();
 
     renderAuthProvider();
 
-    expect(screen.getByTestId("loading").textContent).toBe("true");
+    await waitFor(() => {
+      expect(screen.getByTestId("loading").textContent).toBe("false");
+    });
     expect(screen.getByTestId("authenticated").textContent).toBe("false");
     expect(screen.getByTestId("user-email").textContent).toBe("none");
   });

@@ -107,31 +107,27 @@ export class SessionRecovery {
         return session;
       }
       
-      // If no session found, check localStorage directly as a fallback
+      // Fallback: read directly from the localAuthClient storage key.
+      // This only runs when the in-memory session is absent (e.g. a mid-
+      // construction race), so it acts as a safety net rather than the
+      // primary session source.
       console.log('[SessionRecovery] No session from getSession, checking localStorage directly...');
       
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const storageKey = `sb-${supabaseUrl.split('//')[1].split('.')[0]}-auth-token`;
-      const storedData = localStorage.getItem(storageKey);
+      const storedData = localStorage.getItem('base360-auth-token');
       
       if (storedData) {
         try {
           const parsed = JSON.parse(storedData);
           
-          if (parsed?.currentSession?.refresh_token) {
-            console.log('[SessionRecovery] Found refresh token in localStorage, attempting to restore...');
-            
-            const { data: { session: restoredSession }, error: restoreError } = 
-              await supabase.auth.setSession({
-                access_token: parsed.currentSession.access_token,
-                refresh_token: parsed.currentSession.refresh_token
-              });
-            
-            if (!restoreError && restoredSession) {
+          if (parsed?.access_token) {
+            console.log('[SessionRecovery] Found token in localStorage, restoring session...');
+            // Re-hydrate the localAuthClient's in-memory session
+            await supabase.auth.setSession(parsed);
+            // Re-fetch session after hydration
+            const { data: { session: restoredSession } } = await supabase.auth.getSession();
+            if (restoredSession) {
               console.log('[SessionRecovery] Session restored from localStorage');
               return restoredSession;
-            } else {
-              console.error('[SessionRecovery] Failed to restore session:', restoreError);
             }
           }
         } catch (e) {
@@ -170,9 +166,8 @@ export class SessionRecovery {
    */
   clearStoredSession(): void {
     try {
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const storageKey = `sb-${supabaseUrl.split('//')[1].split('.')[0]}-auth-token`;
-      localStorage.removeItem(storageKey);
+      // Use the same key that localAuthClient stores the session under
+      localStorage.removeItem('base360-auth-token');
       console.log('[SessionRecovery] Stored session cleared');
     } catch (error) {
       console.error('[SessionRecovery] Failed to clear stored session:', error);

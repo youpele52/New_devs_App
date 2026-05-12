@@ -204,20 +204,21 @@ describe("SecureAPI.getAuthMe", () => {
 describe("request deduplication", () => {
   it("makes only one HTTP request when two concurrent GETs target the same endpoint", async () => {
     const client = getFreshClient();
-    let resolveRequest!: (v: any) => void;
 
-    const fetchMock = vi.fn().mockImplementation(
-      () =>
-        new Promise((res) => {
-          resolveRequest = res;
-        })
-    );
+    // Use a promise that we resolve manually to hold the fetch open
+    let resolveRequest: (v: any) => void;
+    const pendingResponse = new Promise<Response>((res) => {
+      resolveRequest = res;
+    });
+
+    const fetchMock = vi.fn().mockReturnValue(pendingResponse);
     vi.stubGlobal("fetch", fetchMock);
 
     const p1 = client.getAuthMe();
     const p2 = client.getAuthMe();
 
-    resolveRequest(mockFetchResponse({ id: "u1", permissions: [], tenant_id: "t1" }));
+    // Now resolve the single pending fetch
+    resolveRequest!(mockFetchResponse({ id: "u1", permissions: [], tenant_id: "t1" }));
 
     const [r1, r2] = await Promise.all([p1, p2]);
     expect(fetchMock).toHaveBeenCalledTimes(1);

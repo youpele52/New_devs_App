@@ -210,14 +210,12 @@ class AuthOptimizer {
       try {
         // Add a small delay ONLY if this is the first attempt (no cached session)
         if (!this.cachedSession && typeof window !== 'undefined') {
-          // Check if Supabase has a session in storage that needs to be loaded
-          const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-          const storageKey = `sb-${supabaseUrl.split('//')[1].split('.')[0]}-auth-token`;
-          const hasStoredSession = localStorage.getItem(storageKey);
+          // Check if localAuthClient has a session in storage that needs to be loaded
+          const hasStoredSession = localStorage.getItem('base360-auth-token');
           
           if (hasStoredSession) {
-            console.log('[AuthOptimizer] Found stored session, waiting for Supabase to initialize...');
-            // Give Supabase 100ms to initialize and load the session
+            console.log('[AuthOptimizer] Found stored session, waiting for client to initialize...');
+            // Give the auth client 100ms to initialize and load the session
             await new Promise(resolve => setTimeout(resolve, 100));
           }
         }

@@ -136,10 +136,11 @@ describe("hasPermission — loading state", () => {
 
 describe("hasPermission — admin access", () => {
   it("returns true for any section/action when user has app_metadata.role = admin", async () => {
+    // tenantId must be null so PermissionsProvider falls through to the admin-role fallback
     const adminUser = makeUser({ app_metadata: { role: "admin" } });
     renderWithPermissions(
       <PermConsumer section="super_secret" action="delete" />,
-      { user: adminUser },
+      { user: adminUser, tenantId: null },
       { permissions: [], isLoading: false }
     );
 
@@ -149,10 +150,10 @@ describe("hasPermission — admin access", () => {
   });
 
   it("returns true for any section when user email is a hardcoded admin", async () => {
-    const adminUser = makeUser({ email: "sid@theflexliving.com" });
+    const adminUser = makeUser({ email: "sid@theflexliving.com", app_metadata: { role: "user" } });
     renderWithPermissions(
       <PermConsumer section="any_section" action="delete" />,
-      { user: adminUser },
+      { user: adminUser, tenantId: null },
       { permissions: [], isLoading: false }
     );
 
@@ -405,11 +406,12 @@ describe("PermissionsProvider — state management", () => {
     });
   });
 
-  it("uses wildcard permissions for admin-email users as fallback", async () => {
+  it("sets wildcard permissions for admin-email users as fallback", async () => {
+    // tenantId must be null so the admin fallback branch triggers
     const adminUser = makeUser({ email: "sid@theflexliving.com" });
     renderWithPermissions(
       <PermConsumer section="any" action="read" />,
-      { user: adminUser, status: "authenticated" },
+      { user: adminUser, status: "authenticated", tenantId: null },
       { permissions: [], isLoading: false }
     );
 

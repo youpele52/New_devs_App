@@ -1,6 +1,7 @@
 import pytest
 from sqlalchemy import text
 
+from app.core.errors import AppError
 from app.services.reservations import calculate_revenue_summary
 
 
@@ -38,7 +39,7 @@ async def test_calculate_revenue_summary_rejects_mixed_currencies(db_session_fac
         )
         await session.commit()
 
-    with pytest.raises(Exception) as error:
+    with pytest.raises(AppError) as error:
         await calculate_revenue_summary("prop-001", "tenant-a", month=3, year=2024)
 
-    assert getattr(error.value, "error_code", None) == "mixed_currency_revenue"
+    assert error.value.error_code == "mixed_currency_revenue"

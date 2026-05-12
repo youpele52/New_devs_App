@@ -17,7 +17,7 @@ async def test_unhandled_exception_handler_returns_safe_500_payload():
     async def boom():
         raise RuntimeError("unexpected failure")
 
-    transport = ASGITransport(app=test_app)
+    transport = ASGITransport(app=test_app, raise_app_exceptions=False)
     async with AsyncClient(transport=transport, base_url="http://testserver") as client:
         response = await client.get("/boom")
 

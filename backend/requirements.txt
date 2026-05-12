@@ -22,6 +22,7 @@ pytest-asyncio
 aiosqlite
 sendgrid
 sqlalchemy>=2.0.0
+greenlet
 supabase
 tenacity>=8.0.0
 uvicorn[standard]

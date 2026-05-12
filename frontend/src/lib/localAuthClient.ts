@@ -76,6 +76,28 @@ class LocalAuthClient {
     }
   }
 
+  /**
+   * Checks whether a JWT access token is expired (or within a 60-second grace
+   * buffer). Decodes the payload locally — no network request required.
+   *
+   * Returns false (treat as valid) when the token cannot be decoded so we
+   * never accidentally log the user out due to a parse error.
+   */
+  private isTokenExpired(token: string): boolean {
+    try {
+      const parts = token.split('.');
+      // Not a standard three-part JWT (e.g. a test/mock token) — treat as valid
+      if (parts.length !== 3) return false;
+      const payload = JSON.parse(atob(parts[1]));
+      if (typeof payload.exp !== 'number') return false;
+      // 60-second buffer so we don't use a token that expires mid-request
+      return (Date.now() / 1000) > (payload.exp - 60);
+    } catch {
+      // Cannot decode the payload — assume valid rather than signing out
+      return false;
+    }
+  }
+
   async signInWithPassword(credentials: SignInCredentials): Promise<AuthResponse> {
     try {
       const response = await fetch(`${this.getApiUrl()}/api/v1/auth/login`, {
@@ -144,30 +166,56 @@ class LocalAuthClient {
     }
   }
 
+  /**
+   * Returns the current session WITHOUT making any network request.
+   *
+   * Previously this method called /api/v1/auth/me on every invocation which
+   * caused random logouts on page refresh because:
+   *   1. Many parts of the app call getSession() simultaneously at startup.
+   *   2. Any single network hiccup (timeout, transient error) would call
+   *      saveSession(null), fire SIGNED_OUT, and log the user out.
+   *
+   * Now we check the JWT expiry claim locally (no HTTP). The backend already
+   * validates the JWT signature on every actual API call, so there is no
+   * security regression.
+   */
   async getSession(): Promise<{ data: { session: AuthSession | null } }> {
-    // Check if current session is still valid
     if (this.session?.access_token) {
-      try {
-        // Verify token is still valid by calling a protected endpoint
-        const response = await fetch(`${this.getApiUrl()}/api/v1/auth/me`, {
-          headers: {
-            'Authorization': `Bearer ${this.session.access_token}`,
-          },
-        });
-
-        if (response.ok) {
-          return { data: { session: this.session } };
-        } else {
-          // Session invalid, clear it
-          this.saveSession(null);
-        }
-      } catch (error) {
-        console.warn('[LocalAuth] Session validation failed:', error);
+      if (this.isTokenExpired(this.session.access_token)) {
+        console.warn('[LocalAuth] Session token expired — clearing');
         this.saveSession(null);
+        return { data: { session: null } };
       }
+      return { data: { session: this.session } };
     }
-
     return { data: { session: null } };
+  }
+
+  /**
+   * "Refreshes" the session for Supabase-compatible callers such as
+   * SessionPersistenceManager.
+   *
+   * This auth system issues plain JWTs without a refresh-token mechanism, so
+   * a true token rotation is not possible here. Instead we:
+   *   • Return the current session if the token is still valid.
+   *   • Return an "Auth session missing" error if the token has expired, which
+   *     tells SessionPersistenceManager to stop retrying gracefully.
+   *
+   * A proper refresh endpoint can be added to the backend later and wired in
+   * here without changing any callers.
+   */
+  async refreshSession(): Promise<{ data: { session: AuthSession | null }; error: Error | null }> {
+    if (!this.session?.access_token) {
+      return { data: { session: null }, error: new Error('Auth session missing') };
+    }
+    if (this.isTokenExpired(this.session.access_token)) {
+      console.warn('[LocalAuth] Cannot refresh — token expired');
+      this.saveSession(null);
+      return { data: { session: null }, error: new Error('Auth session missing') };
+    }
+    // Token is still valid — return it as-is
+    console.log('[LocalAuth] refreshSession: token still valid, returning current session');
+    return { data: { session: this.session }, error: null };
   }
 
   async getUser(token?: string): Promise<{ user: AuthUser | null }> {
@@ -205,12 +253,13 @@ class LocalAuthClient {
     }
   }
 
-  // Mock auth state change handler for compatibility
+  // Auth state change handler (Supabase-compatible interface)
   onAuthStateChange(callback: (event: string, session: AuthSession | null) => void) {
     // Register subscriber
     this.subscribers.push(callback);
 
-    // Call immediately with current state
+    // Fire immediately with the current in-memory session so callers don't
+    // need to also call getSession() to bootstrap
     callback('INITIAL_SESSION', this.session);
 
     // Return unsubscribe function
@@ -219,23 +268,24 @@ class LocalAuthClient {
         subscription: {
           unsubscribe: () => {
             this.subscribers = this.subscribers.filter(cb => cb !== callback);
-          }
-        }
-      }
+          },
+        },
+      },
     };
   }
 
-  // Mock admin interface for compatibility
+  // Supabase-compatible auth interface
   get auth() {
     return {
       admin: {
         getUser: this.getUser.bind(this),
-        getUserById: (id: string) => this.getUser(),
-        listUsers: () => Promise.resolve([]), // Mock implementation
+        getUserById: (_id: string) => this.getUser(),
+        listUsers: () => Promise.resolve([]),
       },
       signInWithPassword: this.signInWithPassword.bind(this),
       signOut: this.signOut.bind(this),
       getSession: this.getSession.bind(this),
+      refreshSession: this.refreshSession.bind(this),
       getUser: this.getUser.bind(this),
       setSession: this.setSession.bind(this),
       onAuthStateChange: this.onAuthStateChange.bind(this),
