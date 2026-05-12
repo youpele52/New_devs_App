@@ -225,3 +225,50 @@ describe("request deduplication", () => {
     expect(r1).toEqual(r2);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Dashboard query params
+// ---------------------------------------------------------------------------
+
+describe("getDashboardSummary", () => {
+  it("includes month and year query params when a custom reporting period is requested", async () => {
+    const client = getFreshClient();
+    const requestSpy = vi
+      .spyOn(client as any, "request")
+      .mockResolvedValue({ total_revenue: "2250.000" });
+
+    await client.getDashboardSummary("prop-001", {
+      timestamp: 123,
+      month: 3,
+      year: 2024,
+    });
+
+    expect(requestSpy).toHaveBeenCalledWith(
+      expect.stringContaining("/api/v1/dashboard/summary?"),
+      expect.any(Object),
+    );
+
+    const [url] = requestSpy.mock.calls[0];
+    expect(String(url)).toContain("property_id=prop-001");
+    expect(String(url)).toContain("_t=123");
+    expect(String(url)).toContain("month=3");
+    expect(String(url)).toContain("year=2024");
+  });
+
+  it("omits month and year query params when using the latest reporting period", async () => {
+    const client = getFreshClient();
+    const requestSpy = vi
+      .spyOn(client as any, "request")
+      .mockResolvedValue({ total_revenue: "2250.000" });
+
+    await client.getDashboardSummary("prop-001", {
+      timestamp: 456,
+    });
+
+    const [url] = requestSpy.mock.calls[0];
+    expect(String(url)).toContain("property_id=prop-001");
+    expect(String(url)).toContain("_t=456");
+    expect(String(url)).not.toContain("month=");
+    expect(String(url)).not.toContain("year=");
+  });
+});

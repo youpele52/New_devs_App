@@ -14,6 +14,8 @@ interface RevenueData {
 
 interface RevenueSummaryProps {
     propertyId: string;
+    month?: number;
+    year?: number;
 }
 
 const MONTH_LABELS = [
@@ -40,7 +42,7 @@ function formatMoneyValue(rawAmount: string): string {
     return negative ? `-${formattedAmount}` : formattedAmount;
 }
 
-export const RevenueSummary: React.FC<RevenueSummaryProps> = ({ propertyId }) => {
+export const RevenueSummary: React.FC<RevenueSummaryProps> = ({ propertyId, month, year }) => {
     const [data, setData] = useState<RevenueData | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -55,6 +57,8 @@ export const RevenueSummary: React.FC<RevenueSummaryProps> = ({ propertyId }) =>
             try {
                 const response = await SecureAPI.getDashboardSummary(propertyId, {
                     timestamp: Date.now(),
+                    month,
+                    year,
                 });
                 if (!cancelled) {
                     setData(response);
@@ -76,7 +80,7 @@ export const RevenueSummary: React.FC<RevenueSummaryProps> = ({ propertyId }) =>
         return () => {
             cancelled = true;
         };
-    }, [propertyId]);
+    }, [propertyId, month, year]);
 
     if (loading) {
         return (
