@@ -41,5 +41,5 @@ dev = [
     "pre-commit>=4.3.0",
 ]
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["app"]
 pythonpath = ["."]

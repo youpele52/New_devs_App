@@ -161,14 +161,8 @@ describe("Header — mobile menu button", () => {
 // ---------------------------------------------------------------------------
 
 describe("Header — breadcrumbs", () => {
-  it("renders breadcrumbs container (hidden on mobile)", () => {
-    const { useBreadcrumbs } = require("../hooks/useBreadcrumbs");
-    vi.mocked(useBreadcrumbs).mockReturnValue([
-      { label: "Dashboard", href: "/dashboard" },
-    ]);
-
+  it("renders breadcrumbs wrapper that is hidden on mobile", () => {
     renderHeader();
-
     // Breadcrumbs wrapper has hidden md:block class
     const breadcrumbContainer = document.querySelector(".hidden.md\\:block");
     expect(breadcrumbContainer).not.toBeNull();

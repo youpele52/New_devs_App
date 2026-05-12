@@ -257,14 +257,21 @@ describe("safeFetch", () => {
   });
 
   it("aborts the request after the timeout ms", async () => {
-    // Simulate a fetch that rejects with AbortError (what AbortController produces)
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockRejectedValue(Object.assign(new Error("The operation was aborted"), { name: "AbortError" }))
-    );
+    // Simulate a fetch that rejects immediately with an AbortError
+    const abortError = Object.assign(new Error("The operation was aborted"), { name: "AbortError" });
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(abortError));
 
+    // safeFetch with no retries so the test is instant
     await expect(
-      safeFetch("https://api.example.com/slow", {}, { timeout: 50, showErrorToast: false })
+      safeFetch(
+        "https://api.example.com/slow",
+        {},
+        {
+          timeout: 50,
+          showErrorToast: false,
+          retryConfig: { maxRetries: 0, initialDelay: 0, maxDelay: 0, backoffMultiplier: 1 },
+        }
+      )
     ).rejects.toBeDefined();
   });
 });

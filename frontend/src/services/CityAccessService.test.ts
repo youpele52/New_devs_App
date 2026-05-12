@@ -194,12 +194,16 @@ describe("getCities", () => {
 
   it("re-fetches when the tenantId changes between calls", async () => {
     const svc = CityAccessService.getInstance();
+    // Return a new Response each time so the body isn't exhausted
     const fetchMock = vi
       .fn()
-      .mockResolvedValue(mockFetchResponse({ cities: ["London"] }));
+      .mockImplementation(() =>
+        Promise.resolve(mockFetchResponse({ cities: ["London"] }))
+      );
     vi.stubGlobal("fetch", fetchMock);
 
     await svc.getCities(CONTEXT);
+    // Second call with different tenant — cache should be invalidated
     await svc.getCities({ ...CONTEXT, tenantId: "new-tenant" });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -282,13 +286,12 @@ describe("getCities", () => {
 
   it("deduplicates concurrent requests — only one fetch is made", async () => {
     const svc = CityAccessService.getInstance();
-    let resolveFirst!: (v: any) => void;
-    const fetchMock = vi.fn().mockImplementation(
-      () =>
-        new Promise((res) => {
-          resolveFirst = res;
-        })
-    );
+
+    let resolveFirst: (v: any) => void;
+    const pendingResponse = new Promise<Response>((res) => {
+      resolveFirst = res;
+    });
+    const fetchMock = vi.fn().mockReturnValue(pendingResponse);
     vi.stubGlobal("fetch", fetchMock);
 
     // Fire two concurrent calls
@@ -296,7 +299,7 @@ describe("getCities", () => {
     const p2 = svc.getCities(CONTEXT);
 
     // Resolve the pending fetch
-    resolveFirst(mockFetchResponse({ cities: ["London"] }));
+    resolveFirst!(mockFetchResponse({ cities: ["London"] }));
 
     const [r1, r2] = await Promise.all([p1, p2]);
 

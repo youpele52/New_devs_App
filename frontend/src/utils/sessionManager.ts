@@ -201,31 +201,18 @@ class SessionManager {
         console.error('[SessionManager] Token refresh failed:', error);
 
         // If refresh fails, try to re-authenticate with stored credentials if available
-        // Get the correct storage key for Supabase v2
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-        const storageKey = `sb-${supabaseUrl.split('//')[1].split('.')[0]}-auth-token`;
-        const storedSession = localStorage.getItem(storageKey);
+        // Use the localAuthClient storage key
+        const storedSession = localStorage.getItem('base360-auth-token');
 
         if (storedSession) {
           try {
             const parsed = JSON.parse(storedSession);
-            if (parsed?.currentSession?.refresh_token) {
-              console.log('[SessionManager] Attempting refresh with stored refresh token');
-              const { data: { session: refreshedSession }, error: refreshError } =
-                await supabase.auth.refreshSession({ refresh_token: parsed.currentSession.refresh_token });
-
-              if (!refreshError && refreshedSession) {
-                console.log('[SessionManager] Session refreshed with stored token');
-                // Ensure the refreshed session is persisted
-                await supabase.auth.setSession({
-                  access_token: refreshedSession.access_token,
-                  refresh_token: refreshedSession.refresh_token
-                });
-                return refreshedSession;
-              }
-            }
+            // localAuthClient sessions don't carry a refresh_token — nothing to
+            // rotate with. Log and fall through to return null so the caller
+            // can handle the expired session gracefully.
+            console.warn('[SessionManager] Token refresh failed and no refresh_token available. User must re-login.');
           } catch (e) {
-            console.error('[SessionManager] Failed to use stored refresh token:', e);
+            console.error('[SessionManager] Failed to parse stored session:', e);
           }
         }
 
