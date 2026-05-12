@@ -1,16 +1,57 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+
+import { SecureAPI } from "../lib/secureApi";
 import { RevenueSummary } from "./RevenueSummary";
 
-const PROPERTIES = [
-  { id: 'prop-001', name: 'Beach House Alpha' },
-  { id: 'prop-002', name: 'City Apartment Downtown' },
-  { id: 'prop-003', name: 'Country Villa Estate' },
-  { id: 'prop-004', name: 'Lakeside Cottage' },
-  { id: 'prop-005', name: 'Urban Loft Modern' }
-];
+interface PropertyOption {
+  id: string;
+  name: string;
+}
 
 const Dashboard: React.FC = () => {
-  const [selectedProperty, setSelectedProperty] = useState('prop-001');
+  const [properties, setProperties] = useState<PropertyOption[]>([]);
+  const [selectedProperty, setSelectedProperty] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadProperties = async () => {
+      setLoading(true);
+      setError("");
+
+      try {
+        const response = await SecureAPI.getDashboardProperties();
+        if (cancelled) {
+          return;
+        }
+
+        setProperties(response);
+        setSelectedProperty((currentValue) => {
+          if (currentValue && response.some((property) => property.id === currentValue)) {
+            return currentValue;
+          }
+          return response[0]?.id || "";
+        });
+      } catch (loadError) {
+        if (!cancelled) {
+          setError("Failed to load your properties.");
+          console.error(loadError);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    loadProperties();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <div className="p-4 lg:p-6 min-h-full">
@@ -26,16 +67,16 @@ const Dashboard: React.FC = () => {
                   Monthly performance insights for your properties
                 </p>
               </div>
-              
-              {/* Property Selector */}
+
               <div className="flex flex-col sm:items-end">
                 <label className="text-xs font-medium text-gray-700 mb-1">Select Property</label>
                 <select
                   value={selectedProperty}
-                  onChange={(e) => setSelectedProperty(e.target.value)}
-                  className="block w-full sm:w-auto min-w-[200px] px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm"
+                  onChange={(event) => setSelectedProperty(event.target.value)}
+                  disabled={loading || properties.length === 0}
+                  className="block w-full sm:w-auto min-w-[220px] px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-sm disabled:bg-gray-100"
                 >
-                  {PROPERTIES.map((property) => (
+                  {properties.map((property) => (
                     <option key={property.id} value={property.id}>
                       {property.name}
                     </option>
@@ -45,9 +86,19 @@ const Dashboard: React.FC = () => {
             </div>
           </div>
 
-          <div className="space-y-6">
-            <RevenueSummary propertyId={selectedProperty} />
-          </div>
+          {error ? <div className="p-4 text-red-500 bg-red-50 rounded-lg">{error}</div> : null}
+
+          {!error && selectedProperty ? (
+            <div className="space-y-6">
+              <RevenueSummary propertyId={selectedProperty} />
+            </div>
+          ) : null}
+
+          {!error && !loading && properties.length === 0 ? (
+            <div className="p-4 text-gray-500 bg-gray-50 rounded-lg">
+              No properties are available for this tenant.
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

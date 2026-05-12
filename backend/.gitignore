@@ -1,0 +1,15 @@
+# Python bytecode cache
+__pycache__/
+*.py[cod]
+*.pyc
+*.pyo
+*.pyd
+
+# Python packages / eggs
+*.egg
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+env/

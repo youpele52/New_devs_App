@@ -17,6 +17,9 @@ python-multipart
 pytz
 redis>=5.0.0
 requests
+pytest
+pytest-asyncio
+aiosqlite
 sendgrid
 sqlalchemy>=2.0.0
 supabase

@@ -1,0 +1,24 @@
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+
+# Docker
+.docker/
+
+# Build outputs (appears in both frontend and backend)
+dist/
+build/

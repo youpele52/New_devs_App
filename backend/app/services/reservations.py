@@ -1,109 +1,195 @@
+import logging
 from datetime import datetime
 from decimal import Decimal
-from typing import Dict, Any, List
+from typing import Any
+from zoneinfo import ZoneInfo
 
-async def calculate_monthly_revenue(property_id: str, month: int, year: int, db_session=None) -> Decimal:
-    """
-    Calculates revenue for a specific month.
-    """
+from sqlalchemy import text
 
-    start_date = datetime(year, month, 1)
-    if month < 12:
-        end_date = datetime(year, month + 1, 1)
-    else:
-        end_date = datetime(year + 1, 1, 1)
-        
-    print(f"DEBUG: Querying revenue for {property_id} from {start_date} to {end_date}")
+from app.core.database_pool import db_pool
+from app.core.errors import AppError
 
-    # SQL Simulation (This would be executed against the actual DB)
-    query = """
-        SELECT SUM(total_amount) as total
-        FROM reservations
-        WHERE property_id = $1
-        AND tenant_id = $2
-        AND check_in_date >= $3
-        AND check_in_date < $4
-    """
-    
-    # In production this query executes against a database session.
-    # result = await db.fetch_val(query, property_id, tenant_id, start_date, end_date)
-    # return result or Decimal('0')
-    
-    return Decimal('0') # Placeholder for now until DB connection is finalized
 
-async def calculate_total_revenue(property_id: str, tenant_id: str) -> Dict[str, Any]:
-    """
-    Aggregates revenue from database.
-    """
+def _coerce_datetime(value: Any) -> datetime:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    raise AppError(
+        status_code=500,
+        public_message="Revenue data is temporarily unavailable.",
+        log_message=f"Unsupported datetime value returned from database: {value!r}",
+        error_code="invalid_datetime_value",
+    )
+
+
+def _format_decimal(value: Decimal) -> str:
+    return format(value.quantize(Decimal("0.001")), "f")
+
+
+def _normalize_period(month: int | None, year: int | None) -> tuple[int | None, int | None]:
+    if (month is None) != (year is None):
+        raise AppError(
+            status_code=400,
+            public_message="Both month and year are required together.",
+            log_message=f"Invalid reporting period supplied: month={month}, year={year}",
+            error_code="invalid_reporting_period",
+            log_level=logging.WARNING,
+        )
+
+    if month is not None and not 1 <= month <= 12:
+        raise AppError(
+            status_code=400,
+            public_message="Month must be between 1 and 12.",
+            log_message=f"Invalid month supplied: {month}",
+            error_code="invalid_month",
+            log_level=logging.WARNING,
+        )
+
+    return month, year
+
+
+async def list_tenant_properties(tenant_id: str) -> list[dict[str, str]]:
+    await db_pool.initialize()
     try:
-        # Import database pool
-        from app.core.database_pool import DatabasePool
-        
-        # Initialize pool if needed
-        db_pool = DatabasePool()
-        await db_pool.initialize()
-        
-        if db_pool.session_factory:
-            async with db_pool.get_session() as session:
-                # Use SQLAlchemy text for raw SQL
-                from sqlalchemy import text
-                
-                query = text("""
-                    SELECT 
-                        property_id,
-                        SUM(total_amount) as total_revenue,
-                        COUNT(*) as reservation_count
-                    FROM reservations 
+        async with db_pool.get_session() as session:
+            result = await session.execute(
+                text(
+                    """
+                    SELECT id, name
+                    FROM properties
+                    WHERE tenant_id = :tenant_id
+                    ORDER BY name ASC
+                    """
+                ),
+                {"tenant_id": tenant_id},
+            )
+            return [{"id": row.id, "name": row.name} for row in result.fetchall()]
+    except Exception as exc:
+        raise AppError(
+            status_code=500,
+            public_message="Property data is temporarily unavailable.",
+            log_message=f"Property list query failed for tenant={tenant_id}: {exc}",
+            error_code="property_query_failed",
+        ) from exc
+
+
+async def calculate_monthly_revenue(
+    property_id: str,
+    tenant_id: str,
+    month: int,
+    year: int,
+) -> Decimal:
+    revenue_data = await calculate_revenue_summary(
+        property_id=property_id,
+        tenant_id=tenant_id,
+        month=month,
+        year=year,
+    )
+    return Decimal(revenue_data["total"])
+
+
+async def calculate_revenue_summary(
+    property_id: str,
+    tenant_id: str,
+    month: int | None = None,
+    year: int | None = None,
+) -> dict[str, Any]:
+    month, year = _normalize_period(month, year)
+
+    await db_pool.initialize()
+
+    try:
+        async with db_pool.get_session() as session:
+            property_result = await session.execute(
+                text(
+                    """
+                    SELECT id, name, timezone
+                    FROM properties
+                    WHERE id = :property_id AND tenant_id = :tenant_id
+                    """
+                ),
+                {"property_id": property_id, "tenant_id": tenant_id},
+            )
+            property_row = property_result.fetchone()
+
+            if property_row is None:
+                raise AppError(
+                    status_code=404,
+                    public_message="Property not found.",
+                    log_message=f"Tenant {tenant_id} attempted to access unknown property {property_id}",
+                    error_code="property_not_found",
+                    log_level=logging.WARNING,
+                )
+
+            property_timezone = ZoneInfo(property_row.timezone)
+
+            reservations_result = await session.execute(
+                text(
+                    """
+                    SELECT check_in_date, total_amount, currency
+                    FROM reservations
                     WHERE property_id = :property_id AND tenant_id = :tenant_id
-                    GROUP BY property_id
-                """)
-                
-                result = await session.execute(query, {
-                    "property_id": property_id, 
-                    "tenant_id": tenant_id
-                })
-                row = result.fetchone()
-                
-                if row:
-                    total_revenue = Decimal(str(row.total_revenue))
-                    return {
-                        "property_id": property_id,
-                        "tenant_id": tenant_id,
-                        "total": str(total_revenue),
-                        "currency": "USD", 
-                        "count": row.reservation_count
-                    }
-                else:
-                    # No reservations found for this property
-                    return {
-                        "property_id": property_id,
-                        "tenant_id": tenant_id,
-                        "total": "0.00",
-                        "currency": "USD",
-                        "count": 0
-                    }
+                    ORDER BY check_in_date ASC
+                    """
+                ),
+                {"property_id": property_id, "tenant_id": tenant_id},
+            )
+            reservations = reservations_result.fetchall()
+
+    except AppError:
+        raise
+    except Exception as exc:
+        raise AppError(
+            status_code=500,
+            public_message="Revenue data is temporarily unavailable.",
+            log_message=f"Revenue query failed for tenant={tenant_id} property={property_id}: {exc}",
+            error_code="revenue_query_failed",
+        ) from exc
+
+    local_reservations: list[tuple[datetime, Decimal, str]] = []
+    currencies: set[str] = set()
+
+    for reservation in reservations:
+        local_check_in = _coerce_datetime(reservation.check_in_date).astimezone(property_timezone)
+        total_amount = Decimal(str(reservation.total_amount))
+        currency = reservation.currency or "USD"
+        local_reservations.append((local_check_in, total_amount, currency))
+        currencies.add(currency)
+
+    if len(currencies) > 1:
+        raise AppError(
+            status_code=409,
+            public_message="Revenue data contains multiple currencies and cannot be summarized safely.",
+            log_message=f"Mixed currencies for tenant={tenant_id} property={property_id}: {sorted(currencies)}",
+            error_code="mixed_currency_revenue",
+        )
+
+    if month is None or year is None:
+        if local_reservations:
+            latest_check_in = max(item[0] for item in local_reservations)
+            month = latest_check_in.month
+            year = latest_check_in.year
         else:
-            raise Exception("Database pool not available")
-            
-    except Exception as e:
-        print(f"Database error for {property_id} (tenant: {tenant_id}): {e}")
-        
-        # Create property-specific mock data for testing when DB is unavailable
-        # This ensures each property shows different figures
-        mock_data = {
-            'prop-001': {'total': '1000.00', 'count': 3},
-            'prop-002': {'total': '4975.50', 'count': 4}, 
-            'prop-003': {'total': '6100.50', 'count': 2},
-            'prop-004': {'total': '1776.50', 'count': 4},
-            'prop-005': {'total': '3256.00', 'count': 3}
-        }
-        
-        mock_property_data = mock_data.get(property_id, {'total': '0.00', 'count': 0})
-        
-        return {
-            "property_id": property_id,
-            "tenant_id": tenant_id, 
-            "total": mock_property_data['total'],
-            "currency": "USD",
-            "count": mock_property_data['count']
-        }
+            now = datetime.now(property_timezone)
+            month = now.month
+            year = now.year
+
+    total_revenue = Decimal("0.000")
+    reservation_count = 0
+
+    for local_check_in, total_amount, _currency in local_reservations:
+        if local_check_in.month == month and local_check_in.year == year:
+            total_revenue += total_amount
+            reservation_count += 1
+
+    return {
+        "property_id": property_row.id,
+        "property_name": property_row.name,
+        "tenant_id": tenant_id,
+        "total": _format_decimal(total_revenue),
+        "currency": next(iter(currencies), "USD"),
+        "count": reservation_count,
+        "reporting_month": month,
+        "reporting_year": year,
+    }

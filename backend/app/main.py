@@ -15,6 +15,8 @@ import os
 import time
 
 from app.core.redis_client import redis_client
+from app.core.database_pool import db_pool
+from app.core.errors import AppError, app_error_handler, unhandled_exception_handler
 from .api.v1 import (
     users_lightning,
     cities,
@@ -100,6 +102,13 @@ async def lifespan(app: FastAPI):
         logger.error(f"❌ Supabase connection pool initialization failed: {e}")
         # Continue startup - fallback to direct connections
 
+    try:
+        await db_pool.initialize()
+        logger.info("✅ Application database pool initialized")
+    except Exception as e:
+        logger.error(f"❌ Application database pool initialization failed: {e}")
+        raise
+
     # Initialize Redis connection with timeout
     try:
         await redis_client.initialize()
@@ -136,6 +145,12 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"⚠️ Error closing connection pool: {e}")
 
+    try:
+        await db_pool.close()
+        logger.info("✅ Application database pool closed")
+    except Exception as e:
+        logger.warning(f"⚠️ Error closing application database pool: {e}")
+
 
 app = FastAPI(
     title="Auth Skeleton API",
@@ -143,6 +158,8 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+app.add_exception_handler(AppError, app_error_handler)
+app.add_exception_handler(Exception, unhandled_exception_handler)
 
 # CORS middleware
 app.add_middleware(
